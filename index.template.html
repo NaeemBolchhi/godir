@@ -1,1 +1,22 @@
-placeholder
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Directory View</title>
+</head>
+<body>
+    <script>
+        // Injected Pako library if compression is enabled
+        {{PAKO_JS}}
+
+        const goStructure = {{GODIR_DATA}};
+    </script>
+    <script>
+        // Your logic to check if Pako exists and decompress the 'godir' data
+        if (typeof pako !== 'undefined') {
+            // ... decompress logic ...
+        } else {
+            // ... direct access logic ...
+        }
+    </script>
+</body>
+</html>

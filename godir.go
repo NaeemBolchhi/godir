@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-//go:embed index.template.html index-pako.template.html
+//go:embed index.template.html pako_inflate.min.js
 var templates embed.FS
 
 type FileNode struct {
@@ -28,13 +28,11 @@ func buildTree(path string) (*FileNode, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	node := &FileNode{
 		Name:  info.Name(),
 		Size:  info.Size(),
 		MTime: info.ModTime(),
 	}
-
 	if info.IsDir() {
 		node.Type = "directory"
 		entries, err := os.ReadDir(path)
@@ -50,7 +48,6 @@ func buildTree(path string) (*FileNode, error) {
 	} else {
 		node.Type = "file"
 	}
-
 	return node, nil
 }
 
@@ -80,30 +77,23 @@ func printTree(node *FileNode, prefix string, isLast bool, buf *bytes.Buffer) {
 }
 
 func displayHelp() {
-	helpText := `
+	fmt.Print(`
 GoDir - A portable directory mapping utility built in Go.
 
 Usage:
   godir.exe [OUTPUT MODE] [OPTIONS]
   godir.exe -dir <folderpath> [OUTPUT MODE] [OPTIONS]
 
-Output Modes (Mutually Exclusive - choose only one):
-  --json             Outputs directory structure as an indented JSON schema payload (Default).
-  --tree             Outputs a visual, classic ASCII terminal file tree blueprint.
-  --js               Outputs a valid JavaScript asset statement (e.g., const godir = { ... };).
-  --index            Outputs a valid 'godir.js' file and embeds a template HTML file to the 
-                     output directory as 'index.html'. (Automatically infers JavaScript formatting).
+Output Modes:
+  --json, --tree, --index
 
 Modifiers & Flags:
-  -dir <path>        Target folder directory to map. Supports relative and absolute paths.
-                     Defaults to current directory.
-  -o <filename/path> Routes layout output to a custom location. Optional if --index is used.
-  --compress         Runs the data payload through a native Zlib compression pipeline.
-  --overwrite        Enables the utility to overwrite an existing 'index.html' file when
-                     using the --index output mode.
-  --help             Displays this CLI usage instructions manual.
-`
-	fmt.Print(helpText)
+  -dir <path>     Target folder directory to map.
+  -o <path>       Routes layout output to a custom location.
+  -compress       Runs the data payload through a native Zlib compression pipeline.
+  -force          Enables the utility to overwrite existing files.
+  --help          Displays this help manual.
+`)
 }
 
 func main() {
@@ -111,61 +101,50 @@ func main() {
 	outputMode := ""
 	compressOutput := false
 	generateIndex := false
-	allowOverwrite := false
+	forceOverwrite := false
 	var outputFile string
-
 	var modeFlagsPresent []string
 
 	args := os.Args[1:]
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
-
-		if arg == "--help" || arg == "-h" {
+		switch arg {
+		case "--help":
 			displayHelp()
 			return
-		} else if arg == "--tree" {
-			outputMode = "tree"
-			modeFlagsPresent = append(modeFlagsPresent, "--tree")
-		} else if arg == "--json" {
-			outputMode = "json"
-			modeFlagsPresent = append(modeFlagsPresent, "--json")
-		} else if arg == "--js" {
-			outputMode = "js"
-			modeFlagsPresent = append(modeFlagsPresent, "--js")
-		} else if arg == "--index" {
-			generateIndex = true
-			outputMode = "js"
-			modeFlagsPresent = append(modeFlagsPresent, "--index")
-		} else if arg == "--compress" {
+		case "--tree", "--json", "--index":
+			if arg == "--index" {
+				generateIndex = true
+				outputMode = "json"
+			} else {
+				outputMode = strings.TrimPrefix(arg, "--")
+			}
+			modeFlagsPresent = append(modeFlagsPresent, arg)
+		case "-compress":
 			compressOutput = true
-		} else if arg == "--overwrite" {
-			allowOverwrite = true
-		} else if arg == "-dir" {
+		case "-force":
+			forceOverwrite = true
+		case "-dir":
 			if i+1 < len(args) {
 				targetDir = args[i+1]
 				i++
-			} else {
-				fmt.Fprintln(os.Stderr, "Error: -dir requires a folder path parameter.")
-				return
 			}
-		} else if arg == "-o" {
+		case "-o":
 			if i+1 < len(args) {
 				outputFile = args[i+1]
 				i++
-			} else {
-				fmt.Fprintln(os.Stderr, "Error: -o requires a filename or full path.")
-				return
 			}
-		} else if arg != "" {
-			targetDir = arg
+		default:
+			if arg != "" {
+				targetDir = arg
+			}
 		}
 	}
 
 	if len(modeFlagsPresent) > 1 {
-		fmt.Fprintf(os.Stderr, "Error: The output mode flags %s cannot be used together in the same command. Please choose exactly one output mode flag.\n", strings.Join(modeFlagsPresent, ", "))
+		fmt.Fprintf(os.Stderr, "Error: Multiple output modes: %s\n", strings.Join(modeFlagsPresent, ", "))
 		return
 	}
-
 	if outputMode == "" {
 		outputMode = "json"
 	}
@@ -174,131 +153,89 @@ func main() {
 		outputFile = "."
 	}
 
-	absTargetDir, err := filepath.Abs(targetDir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error resolving target directory path: %v\n", err)
-		return
+	var finalOutputPath string
+	if outputFile != "" {
+		absOutputPath, _ := filepath.Abs(outputFile)
+		if generateIndex {
+			fi, err := os.Stat(absOutputPath)
+			// Force treat as directory, ignore provided filename
+			if err == nil && fi.IsDir() {
+				finalOutputPath = filepath.Join(absOutputPath, "index.html")
+			} else {
+				finalOutputPath = filepath.Join(filepath.Dir(absOutputPath), "index.html")
+			}
+		} else {
+			finalOutputPath = absOutputPath
+		}
+
+		if _, err := os.Stat(finalOutputPath); err == nil && !forceOverwrite {
+			fmt.Fprintf(os.Stderr, "Error: File '%s' already exists. Use -force to overwrite.\n", finalOutputPath)
+			return
+		}
 	}
 
+	absTargetDir, _ := filepath.Abs(targetDir)
 	tree, err := buildTree(absTargetDir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error processing path: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return
 	}
 
 	var corePayload []byte
-
 	if outputMode == "tree" {
 		var buf bytes.Buffer
 		buf.WriteString(fmt.Sprintf("%s/\n", filepath.Base(absTargetDir)))
 		for i, child := range tree.Children {
-			isLast := i == len(tree.Children)-1
-			printTree(child, "", isLast, &buf)
+			printTree(child, "", i == len(tree.Children)-1, &buf)
 		}
 		corePayload = buf.Bytes()
 	} else {
-		jsonData, _ := json.MarshalIndent(tree, "", "  ")
-		corePayload = jsonData
+		if generateIndex {
+			corePayload, _ = json.Marshal(tree)
+		} else {
+			corePayload, _ = json.MarshalIndent(tree, "", "  ")
+		}
 	}
 
 	var finalOutputData []byte
-
 	if compressOutput {
-		var compressedBuf bytes.Buffer
-		zlibWriter := zlib.NewWriter(&compressedBuf)
-		_, _ = zlibWriter.Write(corePayload)
-		zlibWriter.Close()
-		compressedBytes := compressedBuf.Bytes()
-
-		if outputMode == "js" {
-			var strNumbers []string
-			for _, b := range compressedBytes {
-				strNumbers = append(strNumbers, fmt.Sprintf("%d", b))
-			}
-			jsCode := fmt.Sprintf("const godir = [%s];\n", strings.Join(strNumbers, ","))
-			finalOutputData = []byte(jsCode)
+		var b bytes.Buffer
+		w := zlib.NewWriter(&b)
+		w.Write(corePayload)
+		w.Close()
+		data := b.Bytes()
+		strNums := make([]string, len(data))
+		for i, v := range data {
+			strNums[i] = fmt.Sprintf("%d", v)
+		}
+		payload := strings.Join(strNums, ",")
+		if generateIndex {
+			finalOutputData = []byte("[" + payload + "]")
 		} else {
-			var strNumbers []string
-			for _, b := range compressedBytes {
-				strNumbers = append(strNumbers, fmt.Sprintf("%d", b))
-			}
-			finalOutputData = []byte(strings.Join(strNumbers, ","))
+			finalOutputData = []byte(payload)
 		}
 	} else {
-		if outputMode == "js" {
-			jsCode := fmt.Sprintf("const godir = %s;\n", string(corePayload))
-			finalOutputData = []byte(jsCode)
-		} else {
-			finalOutputData = corePayload
-		}
+		finalOutputData = corePayload
 	}
 
-	if outputFile != "" {
-		absOutputPath, err := filepath.Abs(outputFile)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error resolving output path: %v\n", err)
-			return
-		}
-
-		var outputDir string
-		if generateIndex {
-			fi, err := os.Stat(absOutputPath)
-			if err == nil && fi.IsDir() {
-				outputDir = absOutputPath
-			} else {
-				if strings.HasSuffix(outputFile, string(filepath.Separator)) || outputFile == "." {
-					outputDir = absOutputPath
-				} else {
-					outputDir = filepath.Dir(absOutputPath)
-				}
-			}
-			absOutputPath = filepath.Join(outputDir, "godir.js")
-		} else {
-			outputDir = filepath.Dir(absOutputPath)
-		}
+	if finalOutputPath != "" {
+		os.MkdirAll(filepath.Dir(finalOutputPath), 0755)
 
 		if generateIndex {
-			dstIndexPath := filepath.Join(outputDir, "index.html")
-			if _, err := os.Stat(dstIndexPath); err == nil {
-				if !allowOverwrite {
-					fmt.Fprintf(os.Stderr, "Error: 'index.html' already exists at destination location (%s).\nExecution aborted. No files were altered. Use the --overwrite flag to bypass this restriction.\n", dstIndexPath)
-					return
-				}
-			}
-		}
-
-		err = os.MkdirAll(outputDir, 0755)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating output directory structure: %v\n", err)
-			return
-		}
-
-		err = os.WriteFile(absOutputPath, finalOutputData, 0644)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error writing data file: %v\n", err)
-			return
-		}
-		fmt.Printf("Successfully saved layout output to: %s\n", absOutputPath)
-
-		if generateIndex {
-			templateName := "index.template.html"
+			pakoContent := ""
 			if compressOutput {
-				templateName = "index-pako.template.html"
+				pakoBytes, _ := templates.ReadFile("pako_inflate.min.js")
+				pakoContent = string(pakoBytes)
 			}
+			templateData, _ := templates.ReadFile("index.template.html")
+			htmlStr := strings.Replace(string(templateData), "{{PAKO_JS}}", pakoContent, 1)
+			htmlStr = strings.Replace(htmlStr, "{{GODIR_DATA}}", string(finalOutputData), 1)
 
-			templateData, err := templates.ReadFile(templateName)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error reading embedded template: %v\n", err)
-				return
-			}
-
-			dstIndexPath := filepath.Join(outputDir, "index.html")
-			err = os.WriteFile(dstIndexPath, templateData, 0644)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error writing embedded template file: %v\n", err)
-				return
-			}
-			fmt.Printf("Successfully deployed embedded template and created layout view at: %s\n", dstIndexPath)
+			os.WriteFile(finalOutputPath, []byte(htmlStr), 0644)
+			fmt.Printf("Successfully deployed index.html to: %s\n", finalOutputPath)
+		} else {
+			os.WriteFile(finalOutputPath, finalOutputData, 0644)
+			fmt.Printf("Successfully saved output to: %s\n", finalOutputPath)
 		}
 	} else {
 		fmt.Println(string(finalOutputData))
