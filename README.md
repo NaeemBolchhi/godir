@@ -9,7 +9,7 @@ This tool was made with the assistance of **Gemini**.
 ## Features
 
 - **Flexible Output:** Generate directory trees as standard JSON, visual ASCII trees, or JavaScript variables (`const godir = ...`).
-- **Web Integration:** Use the `--index` flag to generate a `godir.js` file alongside a companion `index.html` template for an instant, interactive web-based file explorer.
+- **Web Integration:** Use the `--index` flag to generate a standalone `index.html` file for an instant, interactive web-based file explorer.
 - **Compression:** Built-in Zlib compression support for handling large file structures efficiently.
 - **Zero Dependencies:** Designed as a single-binary utility for portability.
 
