@@ -1,8 +1,8 @@
 # GoDir
 
-**GoDir** is a lightweight, portable directory mapping utility written in Go. It allows you to scan file system structures and export them in various formats—including JSON, ASCII trees, and ready-to-use JavaScript data files for web applications.
+A lightweight, portable directory mapping utility written in Go. It allows you to scan file system structures and export them in various formats—including JSON, ASCII trees, and ready-to-use JavaScript data files for web applications.
 
-This tool was crafted with the assistance of **Gemini**.
+This tool was made with the assistance of **Gemini**.
 
 ---
 
@@ -30,7 +30,7 @@ To create a web-ready file viewer:
 
 ---
 
-## Command Reference
+## Options
 
 | Flag | Description |
 | --- | --- |
